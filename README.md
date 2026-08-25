@@ -122,6 +122,10 @@ The `mkdir -p` creates the directory on first use; if Docker creates it instead,
 
 If the in-container `agent` user (uid 10001) cannot write to it, fall back to a named volume (`-v "copilot-home:/home/agent/.copilot"`), which has no ownership issues. Prefer isolated histories per project? Use `-v "copilot-${project}:/home/agent/.copilot"` instead.
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
 ## Running parallel sessions
 
 Each `docker run` is a fully isolated container, so parallel sessions work out of the box. Containers get readable names like `ghc-myrepo-153012` (project + start time); list active sessions with `docker ps --filter name=ghc-`. Keep in mind:
