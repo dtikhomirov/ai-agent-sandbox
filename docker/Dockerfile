@@ -1,5 +1,5 @@
 # =========================================================
-# STAGE 1: The Base Setup for Agent runtime
+# STAGE 1: Base image for the Agent runtime
 # =========================================================
 FROM ubuntu:24.04 AS agent-runtime
 
@@ -28,7 +28,7 @@ USER agent
 WORKDIR /workspace
 
 # =========================================================
-# STAGE 2: Build the GitHub Copilot CLI
+# STAGE 2: Build the GitHub Copilot CLI image
 # =========================================================
 FROM agent-runtime AS ghc-cli
 
@@ -37,7 +37,7 @@ RUN curl -fsSL https://gh.io/copilot-install | bash
 ENTRYPOINT ["copilot"]
 
 # =========================================================
-# STAGE 3: Build the Claude CLI
+# STAGE 3: Build the Claude CLI image
 # =========================================================
 FROM agent-runtime AS claude-cli
 
@@ -46,7 +46,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 ENTRYPOINT ["claude"]
 
 # =========================================================
-# STAGE 4: Build the Antigravity CLI
+# STAGE 4: Build the Antigravity CLI image
 # =========================================================
 FROM agent-runtime AS agy-cli
 
