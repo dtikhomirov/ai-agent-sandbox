@@ -11,14 +11,16 @@ Running AI agents in isolation is critical for security and stability. Agents ha
 
 ## Project Goals
 
-AI Agent Box provides a **lightweight, highly secure setup** for running AI agent CLIs safely from your terminal. Rather than installing agents globally or running them with full system access, this project uses Docker containers with minimal overhead:
+AI Agent Box provides a **lightweight, secure setup** for running AI agent CLIs safely from your terminal. Rather than installing agents globally or running them with full system access, this project uses Docker containers with minimal overhead:
 
 - **Secure by default**: Agents run as unprivileged users in isolated containers
 - **Lightweight**: Multi-stage builds keep images lean; minimal dependencies ensure fast startup
 - **Convenient**: Mount only what you need; persist settings and history across sessions; run parallel sessions without conflicts
 - **Terminal-native**: Simple shell functions wrap Docker invocations, making agent CLIs feel like native commands
 
-We provide a transparent pipeline for building Docker images. Each image uses `/workspace` as its working directory and sets the CLI as its entrypoint, so the container runs the agent directly. Zsh shell functions abstract away Docker lifecycle management, giving you a classical terminal experience without the container orchestration overhead.
+We provide a transparent pipeline for building Docker images. Each image uses `/workspace` as its working directory and sets the CLI as its entrypoint, so the container runs the agent directly.
+
+Zsh shell functions abstract away Docker lifecycle management, giving you a classical terminal experience without the container orchestration overhead.
 
 ## Build
 
@@ -40,9 +42,9 @@ docker run --rm -it agy:latest
 
 ## How to use
 
-Mount only the directory the agent needs. `--network none` prevents network access; omit it when the selected CLI must authenticate or call a remote service.
+Mount only the directory the agent needs. 
 
-### Example: Copilot CLI against a local OpenAI-compatible endpoint
+### Example 1: Copilot CLI with local OpenAI-compatible endpoint
 
 Add the following function to your `~/.zshrc`:
 
@@ -50,7 +52,14 @@ Add the following function to your `~/.zshrc`:
 copilot-qwen38max() {
     local project="${PWD##*/}"
     local copilot_home="${HOME}/.docker_volumes/.copilot"
+    local container="copilot-${project}-$(date +%Y%m%d-%H%M%S)-$$"
     mkdir -p "$copilot_home"
+
+    cleanup() {
+        docker rm -f "$container" >/dev/null 2>&1 || true
+    }
+
+    trap cleanup EXIT HUP INT TERM
 
     docker run --rm -it --init \
     --name "copilot-${project}-$(date +%H%M%S)" \
@@ -70,7 +79,40 @@ copilot-qwen38max() {
 }
 ```
 
+### Example 2: Copilot CLI with Github Auth (PAT token) 
+
+Add the following function to your `~/.zshrc`:
+
+```sh
+copilot() {
+    local project="${PWD##*/}"
+    local copilot_home="${HOME}/.docker_volumes/.copilot"
+    local container="copilot-${project}-$(date +%Y%m%d-%H%M%S)-$$"
+
+    mkdir -p "$copilot_home"
+
+    cleanup() {
+        docker rm -f "$container" >/dev/null 2>&1 || true
+    }
+    trap cleanup EXIT HUP INT TERM
+
+   docker run --rm -it --init \
+        --name "$container" \
+        -v "$(pwd)":/workspace \
+        -v "${copilot_home}:/home/agent/.copilot" \
+        -w /workspace \
+        --add-host=host.docker.internal:host-gateway \
+        -e COPILOT_GITHUB_TOKEN="${COPILOT_GITHUB_TOKEN}" \
+        ghc:latest \
+        "$@"
+}
+```
+
 Then reload your shell: `source ~/.zshrc`. The CLI command is `copilot-qwen38max`.
+
+### Copy/paste in macOS Terminal.app
+
+Copilot's TUI captures the mouse for its own text selection, which stops Terminal.app's normal click-drag copy from working. Hold **Fn** while dragging to select text (bypasses the app's mouse capture), then `Cmd+C`/`Cmd+V` as usual. (iTerm2 and other terminals with OSC 52 support aren't affected.)
 
 ## Persistence
 
