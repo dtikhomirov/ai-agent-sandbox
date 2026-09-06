@@ -49,7 +49,7 @@ Mount only the directory the agent needs.
 Add the following function to your `~/.zshrc`:
 
 ```sh
-copilot-qwen38max() {
+copilot-custom() {
     local project="${PWD##*/}"
     local copilot_home="${HOME}/.docker_volumes/.copilot"
     local container="copilot-${project}-$(date +%Y%m%d-%H%M%S)-$$"
@@ -59,21 +59,71 @@ copilot-qwen38max() {
         docker rm -f "$container" >/dev/null 2>&1 || true
     }
 
-    trap cleanup EXIT HUP INT TERM
+    trap cleanup EXIT
+    trap 'cleanup; return 130' INT
+    trap 'cleanup; return 143' HUP TERM
+
+    local models=(
+        "qwen3.8-max"
+        "qwen3.8-flash"
+        "deepseek-v4-pro-0813"
+        "glm-5.3"
+        "glm-5.3-flash"
+        "nemotron-3-super-120b-a12b"
+        "nemotron-3.5-lightning-30b-a3b"
+        "qwen3.6-35b-a3b-mlx"
+        "gemma-4-26b-a4b-it-mlx"
+    )
+
+    local chosen_model=""
+    COLUMNS=1
+    PS3=$'\n\e[1;36mSelect model number: \e[0m'
+
+    echo -e "\n\e[1;34m=== Select Copilot Model ===\e[0m"
+
+    for index in {1..${#models[@]}}; do
+        print -r -- "$index) ${models[index]}"
+    done
+
+    while true; do
+        read -k 1 "choice?$(print -P '\n\e[1;36mSelect model number: \e[0m')"
+        print
+
+        if [[ "$choice" == [1-9] ]] && (( choice <= ${#models[@]} )); then
+            chosen_model="${models[choice]}"
+            print -r -- "Selected model: $chosen_model"
+            break
+        fi
+
+        print -P "\e[1;31mInvalid choice. Press a number from 1 to ${#models[@]}.\e[0m"
+    done
+
+    local max_output_tokens=800000
+    local max_prompt_tokens=128000
+
+    # Models that override the default token limits
+    local override_models=(
+        "qwen3.6-35b-a3b-mlx"
+        "gemma-4-26b-a4b-it-mlx"
+    )
+    if (( ${override_models[(Ie)$chosen_model]} )); then
+        max_output_tokens=32768
+        max_prompt_tokens=8192
+    fi
 
     docker run --rm -it --init \
-    --name "copilot-${project}-$(date +%H%M%S)" \
+    --name "$container" \
     -v "$(pwd)":/workspace \
     -v "${copilot_home}:/home/agent/.copilot" \
     -w /workspace \
     --add-host=host.docker.internal:host-gateway \
     -e COPILOT_PROVIDER_TYPE="openai" \
-    -e COPILOT_MODEL="qwen3.8-max" \
+    -e COPILOT_MODEL="$chosen_model" \
     -e COPILOT_PROVIDER_BASE_URL="http://host.docker.internal:4000/v1" \
     -e COPILOT_PROVIDER_API_KEY="your-api-key" \
     -e COPILOT_OFFLINE=true \
-    -e COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=262144 \
-    -e COPILOT_PROVIDER_MAX_PROMPT_TOKENS=32768 \
+    -e COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$max_output_tokens" \
+    -e COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$max_prompt_tokens" \
     ghc:latest \
         "$@"
 }
