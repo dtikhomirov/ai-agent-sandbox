@@ -18,7 +18,7 @@ AI Agent Box provides a **lightweight, secure setup** for running AI agent CLIs 
 - **Convenient**: Mount only what you need; persist settings and history across sessions; run parallel sessions without conflicts
 - **Terminal-native**: Simple shell functions wrap Docker invocations, making agent CLIs feel like native commands
 
-We provide a transparent pipeline for building Docker images. Each image uses `/workspace` as its working directory and sets the CLI as its entrypoint, so the container runs the agent directly.
+We provide a transparent pipeline for building Docker images. Each image uses `/home/agent/workspace` as its working directory and sets the CLI as its entrypoint, so the container runs the agent directly.
 
 Zsh shell functions abstract away Docker lifecycle management, giving you a classical terminal experience without the container orchestration overhead.
 
@@ -57,75 +57,75 @@ copilot-custom() {
 
     cleanup() {
         docker rm -f "$container" >/dev/null 2>&1 || true
+        trap - INT TERM HUP
     }
+    trap cleanup INT TERM HUP
 
-    trap cleanup EXIT
-    trap 'cleanup; return 130' INT
-    trap 'cleanup; return 143' HUP TERM
-
+    # Format: "model_name:max_prompt_tokens:max_output_tokens"
     local models=(
-        "qwen3.8-max"
-        "qwen3.8-flash"
-        "deepseek-v4-pro-0813"
-        "glm-5.3"
-        "glm-5.3-flash"
-        "nemotron-3-super-120b-a12b"
-        "nemotron-3.5-lightning-30b-a3b"
-        "qwen3.6-35b-a3b-mlx"
-        "gemma-4-26b-a4b-it-mlx"
+        "qwen3.8-max:800000:128000"
+        "qwen3.8-flash:800000:128000"
+        "deepseek-v4-pro-0813:800000:128000"
+        "glm-5.3:800000:128000"
+        "glm-5.3-flash:800000:128000"
+        "nemotron-3-super-120b-a12b:800000:128000"
+        "nemotron-3.5-lightning-30b-a3b:800000:32000"
+        "qwen3.6-35b-a3b-mlx:220000:32000"
+        "gemma-4-26b-a4b-it-mlx:220000:32000"
     )
 
-    local chosen_model=""
-    COLUMNS=1
-    PS3=$'\n\e[1;36mSelect model number: \e[0m'
-
-    echo -e "\n\e[1;34m=== Select Copilot Model ===\e[0m"
-
-    for index in {1..${#models[@]}}; do
-        print -r -- "$index) ${models[index]}"
+    echo -e "\n\033[1;34m=== Select Copilot Model ===\033[0m"
+    local i=1
+    for item in "${models[@]}"; do
+        echo "$i) ${item%%:*}"
+        ((i++))
     done
 
+    local choice
     while true; do
-        read -k 1 "choice?$(print -P '\n\e[1;36mSelect model number: \e[0m')"
-        print
+        echo -en "\n\033[1;36mSelect model number: \033[0m"
+        # Portable single-key read: -k for Zsh, -n for Bash
+        if [ -n "$ZSH_VERSION" ]; then
+            read -k 1 choice
+        else
+            read -r -n 1 choice
+        fi
+        echo ""
 
-        if [[ "$choice" == [1-9] ]] && (( choice <= ${#models[@]} )); then
-            chosen_model="${models[choice]}"
-            print -r -- "Selected model: $chosen_model"
+        if [[ "$choice" =~ ^[1-9]$ ]] && (( choice <= ${#models[@]} )); then
             break
         fi
-
-        print -P "\e[1;31mInvalid choice. Press a number from 1 to ${#models[@]}.\e[0m"
+        echo -e "\033[1;31mInvalid choice. Press a number from 1 to ${#models[@]}.\033[0m"
     done
 
-    local max_output_tokens=800000
-    local max_prompt_tokens=128000
+    # Portable array access (Zsh is 1-indexed, Bash is 0-indexed)
+    local chosen_entry="${models[$([ -n "$ZSH_VERSION" ] && echo "$choice" || echo "$((choice - 1))")]}"
 
-    # Models that override the default token limits
-    local override_models=(
-        "qwen3.6-35b-a3b-mlx"
-        "gemma-4-26b-a4b-it-mlx"
-    )
-    if (( ${override_models[(Ie)$chosen_model]} )); then
-        max_output_tokens=32768
-        max_prompt_tokens=8192
-    fi
+    # Extract model and tokens (Prompt context first, Output completion second)
+    IFS=":" read -r chosen_model max_prompt_tokens max_output_tokens <<< "$chosen_entry"
+
+    echo "Running $chosen_model (Prompt context: $max_prompt_tokens, Output limit: $max_output_tokens)"
 
     docker run --rm -it --init \
-    --name "$container" \
-    -v "$(pwd)":/workspace \
-    -v "${copilot_home}:/home/agent/.copilot" \
-    -w /workspace \
-    --add-host=host.docker.internal:host-gateway \
-    -e COPILOT_PROVIDER_TYPE="openai" \
-    -e COPILOT_MODEL="$chosen_model" \
-    -e COPILOT_PROVIDER_BASE_URL="http://host.docker.internal:4000/v1" \
-    -e COPILOT_PROVIDER_API_KEY="your-api-key" \
-    -e COPILOT_OFFLINE=true \
-    -e COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$max_output_tokens" \
-    -e COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$max_prompt_tokens" \
-    ghc:latest \
+        --name "$container" \
+        --user "$(id -u):$(id -g)" \
+        -v "$(pwd)":/home/agent/workspace \
+        -v "${copilot_home}:/home/agent/.copilot" \
+        -w /home/agent/workspace \
+        --add-host=host.docker.internal:host-gateway \
+        -e COPILOT_PROVIDER_TYPE="openai" \
+        -e COPILOT_MODEL="$chosen_model" \
+        -e COPILOT_PROVIDER_BASE_URL="http://host.docker.internal:4000/v1" \
+        -e COPILOT_PROVIDER_API_KEY="your-api-key" \
+        -e COPILOT_OFFLINE=true \
+        -e COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$max_output_tokens" \
+        -e COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$max_prompt_tokens" \
+        ghc:latest \
         "$@"
+
+    local ret=$?
+    cleanup
+    return $ret
 }
 ```
 
@@ -148,13 +148,17 @@ copilot() {
 
    docker run --rm -it --init \
         --name "$container" \
-        -v "$(pwd)":/workspace \
+        --user "$(id -u):$(id -g)" \
+        -v "$(pwd)":/home/agent/workspace \
         -v "${copilot_home}:/home/agent/.copilot" \
-        -w /workspace \
+        -w /home/agent/workspace \
         --add-host=host.docker.internal:host-gateway \
         -e COPILOT_GITHUB_TOKEN="${COPILOT_GITHUB_TOKEN}" \
         ghc:latest \
         "$@"
+    local ret=$?
+    cleanup
+    return $ret
 }
 ```
 
@@ -168,9 +172,9 @@ Copilot's TUI captures the mouse for its own text selection, which stops Termina
 
 The container is ephemeral (`--rm`); the bind mount `${HOME}/.docker_volumes/.copilot` persists `~/.copilot` (settings, auth, session history) on your Mac — visible in Finder and included in Time Machine.
 
-The `mkdir -p` creates the directory on first use; if Docker creates it instead, ownership may be wrong. Because every container mounts the same directory, all sessions are visible and resumable (`/resume`) from any of them, and you authenticate only once.
+The `mkdir -p` creates the directory on first use. Both examples run the container as your host UID/GID, so the mounted directory is writable by your user. Because every container mounts the same directory, all sessions are visible and resumable (`/resume`) from any of them, and you authenticate only once.
 
-If the in-container `agent` user (uid 10001) cannot write to it, fall back to a named volume (`-v "copilot-home:/home/agent/.copilot"`), which has no ownership issues. Prefer isolated histories per project? Use `-v "copilot-${project}:/home/agent/.copilot"` instead.
+If you use a named volume instead, check that it is writable by the UID/GID passed with `--user`; named volumes may also need permission setup. Prefer isolated histories per project? Use `-v "copilot-${project}:/home/agent/.copilot"` instead.
 
 ## License
 
