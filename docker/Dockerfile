@@ -16,40 +16,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 10001 agent \
-    && useradd --uid 10001 --gid agent --create-home --shell /bin/bash agent \
-    && mkdir /workspace \
-    && chown agent:agent /workspace
-
+# Convention for arbitrary UID containers:
+# 1. Base unprivileged user (10001) with dedicated workspace under $HOME
+# 2. Allow any arbitrary runtime host UID to write temporary state to $HOME
+ARG USER_ID=10001
+ARG GROUP_ID=10001
 ENV HOME=/home/agent
-ENV PATH="/home/agent/.local/bin:${PATH}"
 
-USER agent
-WORKDIR /workspace
+RUN groupadd --gid ${GROUP_ID} agent \
+    && useradd --uid ${USER_ID} --gid ${GROUP_ID} --create-home --shell /bin/bash agent \
+    && mkdir -p /home/agent/workspace \
+    && chmod 777 /home/agent /home/agent/workspace
+
+WORKDIR /home/agent/workspace
 
 # =========================================================
 # STAGE 2: Build the GitHub Copilot CLI image
 # =========================================================
 FROM agent-runtime AS ghc-cli
-
+# Install system-wide to /usr/local/bin so ANY runtime UID can execute it
 RUN curl -fsSL https://gh.io/copilot-install | bash
-
+USER agent
 ENTRYPOINT ["copilot"]
 
 # =========================================================
 # STAGE 3: Build the Claude CLI image
 # =========================================================
 FROM agent-runtime AS claude-cli
-
 RUN curl -fsSL https://claude.ai/install.sh | bash
-
+USER agent
 ENTRYPOINT ["claude"]
 
 # =========================================================
 # STAGE 4: Build the Antigravity CLI image
 # =========================================================
 FROM agent-runtime AS agy-cli
-
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
-
+USER agent
 ENTRYPOINT ["agy"]
